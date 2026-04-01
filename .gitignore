@@ -42,3 +42,10 @@ yarn-error.log*
 # Testing
 coverage/
 .nyc_output/
+
+# AWS credentials — never commit
+rootkey*.csv
+accessKeys*.csv
+credentials.csv
+*.pem
+*.ppk
