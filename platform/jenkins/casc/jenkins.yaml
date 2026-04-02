@@ -1,0 +1,61 @@
+# Jenkins Configuration as Code (JCasC)
+# Everything configured here — nothing done manually through the UI
+# Applied automatically on Jenkins startup via CASC_JENKINS_CONFIG env var
+
+jenkins:
+  systemMessage: "devops-platform-lab | Managed by JCasC — do not configure via UI"
+  numExecutors: 2
+  mode: NORMAL
+  scmCheckoutRetryCount: 2
+
+  # Security — matrix-based, admin user only
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+
+  # Global tool configuration
+  globalNodeProperties:
+    - envVars:
+        env:
+          - key: DEPLOY_USER
+            value: deploy
+          - key: PLATFORM_DIR
+            value: /opt/platform
+
+unclassified:
+  location:
+    url: "http://localhost:8080/"
+
+  # Prometheus metrics endpoint — scraped by Prometheus container
+  prometheusConfiguration:
+    collectingMetricsPeriodInSeconds: 15
+    countSuccessfulBuilds: true
+    countFailedBuilds: true
+    countNotBuiltBuilds: true
+    countAbortedBuilds: true
+    fetchTestResults: true
+
+  # GitHub integration
+  gitHubPluginConfig:
+    configs:
+      - name: "GitHub"
+        apiUrl: "https://api.github.com"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          # Docker Hub / GHCR token — used by Jenkinsfile to push images
+          - usernamePassword:
+              scope: GLOBAL
+              id: "ghcr-credentials"
+              description: "GHCR credentials for pushing Flask app image"
+              username: "${GHCR_USERNAME}"
+              password: "${GHCR_TOKEN}"

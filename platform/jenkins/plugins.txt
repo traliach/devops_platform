@@ -1,0 +1,13 @@
+# Pinned Jenkins plugins — never auto-update
+# Format: plugin-id:version
+# Update manually and test before bumping versions
+
+git:5.2.2
+workflow-aggregator:596.v8c21c963d92d
+docker-workflow:572.v950f58993843
+prometheus:777.v4f3f5e4b_76e0
+blueocean:1.27.12
+configuration-as-code:1810.v9b_c30a_249a_4c
+github:1.39.0
+pipeline-stage-view:2.34
+credentials-binding:687.v619cb_15e923f
