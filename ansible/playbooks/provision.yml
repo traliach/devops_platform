@@ -1,0 +1,19 @@
+---
+# provision.yml — full server setup (run once after terraform apply)
+# Applies all roles in dependency order: common → docker → users → firewall
+# Idempotent: safe to re-run at any time
+#
+# Usage:
+#   ansible-playbook playbooks/provision.yml
+#   ansible-playbook playbooks/provision.yml --check --diff   # dry run
+#   ansible-playbook playbooks/provision.yml --tags docker    # run only docker role
+
+- name: Provision devops-platform-lab server
+  hosts: platform
+  become: true
+
+  roles:
+    - role: common    # base packages, timezone, swap, sysctl
+    - role: docker    # Docker CE + Compose plugin
+    - role: users     # deploy user + sudoers
+    - role: firewall  # firewalld host firewall (defense-in-depth)

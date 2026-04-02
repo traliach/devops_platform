@@ -1,0 +1,44 @@
+---
+# users role — creates the deploy user used by Jenkins to run Docker commands
+# Idempotent: safe to run multiple times
+
+- name: Create deploy group
+  group:
+    name: "{{ deploy_group }}"
+    state: present
+  tags: [users, create]
+
+- name: Create deploy user
+  user:
+    name: "{{ deploy_user }}"
+    group: "{{ deploy_group }}"
+    home: "{{ deploy_home }}"
+    shell: /bin/bash
+    state: present
+    create_home: true
+  tags: [users, create]
+
+- name: Add deploy user to docker group
+  user:
+    name: "{{ deploy_user }}"
+    groups: docker
+    append: true
+  tags: [users, configure]
+
+- name: Create deploy user .ssh directory
+  file:
+    path: "{{ deploy_home }}/.ssh"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_group }}"
+    mode: "0700"
+  tags: [users, configure]
+
+- name: Grant deploy user passwordless sudo for Docker and Compose only
+  copy:
+    dest: /etc/sudoers.d/deploy
+    content: |
+      deploy ALL=(ALL) NOPASSWD: /usr/bin/docker, /usr/bin/docker compose
+    validate: visudo -cf %s
+    mode: "0440"
+  tags: [users, sudoers]

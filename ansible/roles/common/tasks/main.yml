@@ -1,0 +1,77 @@
+---
+# common role — base system configuration
+# Idempotent: safe to run multiple times
+
+- name: Update all system packages
+  dnf:
+    name: "*"
+    state: latest
+    update_cache: true
+  tags: [common, packages]
+
+- name: Install base tools
+  dnf:
+    name:
+      - git
+      - vim
+      - wget
+      - unzip
+      - htop
+      - jq
+      - python3
+      - python3-pip
+    state: present
+  tags: [common, packages]
+
+- name: Set system timezone
+  timezone:
+    name: "{{ timezone }}"
+  tags: [common, timezone]
+
+- name: Check if swap file exists
+  stat:
+    path: /swapfile
+  register: swap_file
+  tags: [common, swap]
+
+- name: Create and configure swap file
+  when: not swap_file.stat.exists
+  tags: [common, swap]
+  block:
+    - name: Create swap file
+      command: dd if=/dev/zero of=/swapfile bs=1M count={{ swap_size_mb }}
+
+    - name: Set swap file permissions
+      file:
+        path: /swapfile
+        owner: root
+        group: root
+        mode: "0600"
+      ignore_errors: "{{ ansible_check_mode }}"
+
+    - name: Format swap file
+      command: mkswap /swapfile
+
+    - name: Enable swap
+      command: swapon /swapfile
+
+- name: Persist swap in fstab
+  mount:
+    path: none
+    src: /swapfile
+    fstype: swap
+    opts: sw
+    state: present
+  tags: [common, swap]
+
+- name: Apply sysctl tuning
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop:
+    - { name: vm.swappiness, value: "10" }         # use swap only when RAM is nearly full
+    - { name: vm.dirty_ratio, value: "15" }         # flush dirty pages at 15% RAM
+    - { name: net.core.somaxconn, value: "1024" }   # increase connection queue
+  tags: [common, sysctl]

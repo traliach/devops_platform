@@ -1,0 +1,8 @@
+---
+# Pin all collection versions — never use latest to avoid surprise breaking changes
+# Install with: ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: community.aws
+    version: "7.2.0"   # provides community.aws.aws_ssm connection plugin
+  - name: amazon.aws
+    version: "7.3.0"   # provides aws_* modules (ec2, s3, etc.)

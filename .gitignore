@@ -49,3 +49,4 @@ accessKeys*.csv
 credentials.csv
 *.pem
 *.ppk
+CLAUDE_devops_platform_lab.md

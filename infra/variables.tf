@@ -34,7 +34,7 @@ variable "allowed_ssh_cidrs" {
 }
 
 variable "root_volume_size_gb" {
-  description = "Root EBS volume size in GB"
+  description = "Root EBS volume size in GB — minimum 30GB required by Amazon Linux 2023 AMI"
   type        = number
-  default     = 20
+  default     = 30
 }

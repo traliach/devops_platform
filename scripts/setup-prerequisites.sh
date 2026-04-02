@@ -3,10 +3,11 @@
 # Run once before Sprint 1 (Terraform).
 #
 # What this does:
-#   1. Generates a local SSH key pair (devops-platform-lab-key)
-#   2. Detects your current public IP for the security group
-#   3. Prompts for a GHCR token (needed by release.yml to push Docker images)
-#   4. Sets all required GitHub Actions secrets
+#   1. Creates the DynamoDB state lock table (devops-platform-lab-tf-lock) if it doesn't exist
+#   2. Generates a local SSH key pair (devops-platform-lab-key)
+#   3. Detects your current public IP for the security group
+#   4. Prompts for a GHCR token (needed by release.yml to push Docker images)
+#   5. Sets all required GitHub Actions secrets
 #
 # Terraform will upload the SSH public key to AWS — never create the key pair manually.
 # Your private key never leaves your machine.
@@ -19,6 +20,8 @@ set -euo pipefail
 AWS_REGION="us-east-1"
 KEY_NAME="devops-platform-lab-key"
 KEY_PATH="$HOME/.ssh/${KEY_NAME}"
+TF_STATE_BUCKET="achille-tf-state"
+TF_LOCK_TABLE="devops-platform-lab-tf-lock"
 GITHUB_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo '')"
 # ───────────────────────────────────────────────────────────────────────────────
 
@@ -60,8 +63,34 @@ if [[ -z "$GITHUB_REPO" ]]; then
 fi
 echo ""
 
-# ─── Step 1: SSH key pair ──────────────────────────────────────────────────────
-info "Step 1/4 — Generating SSH key pair"
+# ─── Step 1: DynamoDB state lock table ────────────────────────────────────────
+info "Step 1/5 — Terraform state lock table (DynamoDB)"
+
+TABLE_STATUS=$(aws dynamodb describe-table \
+  --table-name "$TF_LOCK_TABLE" \
+  --region "$AWS_REGION" \
+  --query "Table.TableStatus" \
+  --output text 2>/dev/null || echo "NOT_FOUND")
+
+if [[ "$TABLE_STATUS" == "ACTIVE" ]]; then
+  warn "DynamoDB table '$TF_LOCK_TABLE' already exists — skipping."
+else
+  info "Creating DynamoDB table '$TF_LOCK_TABLE'..."
+  aws dynamodb create-table \
+    --table-name "$TF_LOCK_TABLE" \
+    --attribute-definitions AttributeName=LockID,AttributeType=S \
+    --key-schema AttributeName=LockID,KeyType=HASH \
+    --billing-mode PAY_PER_REQUEST \
+    --region "$AWS_REGION" \
+    --output text > /dev/null
+  # Wait until active
+  aws dynamodb wait table-exists --table-name "$TF_LOCK_TABLE" --region "$AWS_REGION"
+  success "DynamoDB table '$TF_LOCK_TABLE' created (on-demand billing — effectively free at lab scale)"
+fi
+echo ""
+
+# ─── Step 2: SSH key pair ──────────────────────────────────────────────────────
+info "Step 2/5 — Generating SSH key pair"
 
 if [[ -f "$KEY_PATH" ]]; then
   warn "Key already exists at $KEY_PATH — skipping generation."
@@ -80,8 +109,8 @@ info "Public key Terraform will upload to AWS:"
 echo "  $PUBLIC_KEY_CONTENT"
 echo ""
 
-# ─── Step 2: Detect public IP ─────────────────────────────────────────────────
-info "Step 2/4 — Detecting your public IP"
+# ─── Step 3: Detect public IP ─────────────────────────────────────────────────
+info "Step 3/5 — Detecting your public IP"
 
 MY_IP=$(curl -s --max-time 5 https://checkip.amazonaws.com || true)
 [[ -z "$MY_IP" ]] && error "Could not detect public IP. Check your internet connection."
@@ -92,8 +121,8 @@ warn "This IP will be added to the security group for SSH / Jenkins / Grafana ac
 warn "Working from multiple locations? Add more CIDRs to allowed_ssh_cidrs in terraform.tfvars later."
 echo ""
 
-# ─── Step 3: GHCR token ───────────────────────────────────────────────────────
-info "Step 3/4 — GitHub Container Registry (GHCR) token"
+# ─── Step 4: GHCR token ───────────────────────────────────────────────────────
+info "Step 4/5 — GitHub Container Registry (GHCR) token"
 echo ""
 echo "  Required by release.yml to push the Flask app Docker image to GHCR."
 echo "  Create a PAT at: https://github.com/settings/tokens"
@@ -104,8 +133,8 @@ echo ""
 [[ -z "$GHCR_TOKEN" ]] && error "GHCR token cannot be empty."
 echo ""
 
-# ─── Step 4: Set GitHub Actions secrets ───────────────────────────────────────
-info "Step 4/4 — Setting GitHub Actions secrets on '$GITHUB_REPO'"
+# ─── Step 5: Set GitHub Actions secrets ───────────────────────────────────────
+info "Step 5/5 — Setting GitHub Actions secrets on '$GITHUB_REPO'"
 echo ""
 
 AWS_ACCESS_KEY_ID=$(aws configure get aws_access_key_id 2>/dev/null \
@@ -134,9 +163,11 @@ echo ""
 echo "================================================"
 success "Prerequisites complete!"
 echo ""
-echo "  SSH private key : $KEY_PATH"
-echo "  SSH public key  : ${KEY_PATH}.pub"
-echo "  Allowed SSH IP  : $SSH_CIDR"
+echo "  DynamoDB lock table : $TF_LOCK_TABLE (region: $AWS_REGION)"
+echo "  S3 state bucket     : $TF_STATE_BUCKET"
+echo "  SSH private key     : $KEY_PATH"
+echo "  SSH public key      : ${KEY_PATH}.pub"
+echo "  Allowed SSH IP      : $SSH_CIDR"
 echo ""
 echo "  GitHub secrets set:"
 echo "    - AWS_ACCESS_KEY_ID"
@@ -146,7 +177,8 @@ echo "    - TF_VAR_aws_region"
 echo "    - TF_VAR_public_key"
 echo "    - TF_VAR_allowed_ssh_cidrs"
 echo ""
-warn "Terraform will create the AWS key pair from the public key above."
+warn "Primary access is via SSM Session Manager — no fixed IP or open port 22 required."
+warn "SSH key is optional. If generated, Terraform uploads only the public key to AWS."
 warn "Your private key never leaves your machine."
 echo ""
 echo "  Next step:"

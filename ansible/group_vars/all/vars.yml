@@ -1,0 +1,24 @@
+---
+# Variables shared across all roles
+# Override per-host in inventory/host_vars/ if needed
+
+# Server
+timezone: "UTC"
+swap_size_mb: 2048          # 2GB swap — Jenkins is memory-hungry on t3.small
+
+# Deploy user — used by Jenkins to run Docker commands
+deploy_user: deploy
+deploy_group: deploy
+deploy_home: /home/deploy
+
+# Docker — users added to the docker group
+docker_users:
+  - ec2-user
+  - deploy
+
+# Firewall — ports allowed on the host (security group is the primary control)
+firewall_allowed_ports:
+  - { port: "80", proto: "tcp" }    # HTTP — Nginx
+  - { port: "443", proto: "tcp" }   # HTTPS — Nginx
+  - { port: "8080", proto: "tcp" }  # Jenkins
+  - { port: "3000", proto: "tcp" }  # Grafana

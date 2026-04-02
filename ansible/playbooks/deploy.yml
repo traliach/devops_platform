@@ -1,0 +1,44 @@
+---
+# deploy.yml — deploy or update the Docker Compose platform stack
+# Run this after provision.yml has completed successfully
+# Also called by Jenkins when redeploying
+#
+# Usage:
+#   ansible-playbook playbooks/deploy.yml
+
+- name: Deploy platform stack
+  hosts: platform
+  become: true
+
+  tasks:
+    - name: Copy docker-compose.yml to server
+      copy:
+        src: ../../platform/docker-compose.yml
+        dest: /opt/platform/docker-compose.yml
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
+        mode: "0644"
+      tags: [deploy]
+
+    - name: Copy .env file to server
+      copy:
+        src: ../../platform/.env
+        dest: /opt/platform/.env
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
+        mode: "0600"
+      tags: [deploy]
+
+    - name: Pull latest images
+      command: docker compose pull
+      args:
+        chdir: /opt/platform
+      become_user: "{{ deploy_user }}"
+      tags: [deploy]
+
+    - name: Deploy stack (up with remove orphans)
+      command: docker compose up -d --remove-orphans
+      args:
+        chdir: /opt/platform
+      become_user: "{{ deploy_user }}"
+      tags: [deploy]

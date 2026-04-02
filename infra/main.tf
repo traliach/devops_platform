@@ -9,11 +9,14 @@ terraform {
   }
 
   # Remote state — reuses the existing achille-tf-state S3 bucket
-  # Different key per project keeps state files isolated
+  # Each project uses a different key so state files are isolated
+  # DynamoDB table provides state locking — prevents concurrent applies
   backend "s3" {
-    bucket = "achille-tf-state"
-    key    = "devops-platform-lab/terraform.tfstate"
-    region = "us-east-1"
+    bucket         = "achille-tf-state"
+    key            = "devops-platform-lab/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "devops-platform-lab-tf-lock"
+    encrypt        = true
   }
 }
 
