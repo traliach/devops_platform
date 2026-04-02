@@ -1,0 +1,45 @@
+---
+# firewall role — host-level firewall using firewalld (native to Amazon Linux 2023)
+#
+# NOTE: UFW is Ubuntu/Debian tooling and is not native to AL2023 (RHEL-based).
+# firewalld is the correct, supported tool on this OS. The security group in AWS
+# is the primary firewall — this is a defense-in-depth layer at the host level.
+#
+# Docker compatibility note: Docker manages its own iptables rules and can bypass
+# firewalld. The security group is therefore the authoritative firewall for
+# container-exposed ports. firewalld here protects host-level services only.
+#
+# Stateful note: firewalld is stateful by default — return traffic for outbound
+# connections is implicitly allowed. No rich rule needed for established connections.
+#
+# Idempotent: safe to run multiple times
+
+- name: Install firewalld
+  dnf:
+    name: firewalld
+    state: present
+  tags: [firewall, install]
+
+- name: Enable and start firewalld
+  systemd:
+    name: firewalld
+    state: started
+    enabled: true
+  tags: [firewall, service]
+
+# --permanent is NOT valid with --set-default-zone.
+# This command is already both a runtime and permanent change per firewalld docs.
+- name: Set default zone to drop (deny all inbound by default)
+  command: firewall-cmd --set-default-zone=drop
+  changed_when: false
+  tags: [firewall, configure]
+
+- name: Allow required ports
+  firewalld:
+    port: "{{ item.port }}/{{ item.proto }}"
+    zone: drop
+    permanent: true
+    state: enabled
+  loop: "{{ firewall_allowed_ports }}"
+  notify: reload firewalld
+  tags: [firewall, configure]
