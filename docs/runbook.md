@@ -384,14 +384,273 @@ Server state after Sprint 2:
 ### Sprint 3 — Platform Stack (Docker Compose + Jenkins)
 **Goal:** Jenkins, Prometheus, and Grafana running as containers on the EC2 instance.
 **Deliverable:** All services accessible, Jenkins configured via JCasC (no manual UI setup).
+**Status: COMPLETE — 2026-04-04** ✓
 
 | Step | Task | Status |
 |------|------|--------|
-| 3.1 | `platform/docker-compose.yml` — all 4 services with health checks, limits, named volumes | pending |
-| 3.2 | `platform/.env.example` — all required env vars documented | pending |
-| 3.3 | `platform/jenkins/Dockerfile` — Jenkins LTS + plugins | pending |
-| 3.4 | `platform/jenkins/plugins.txt` — pinned plugin list | pending |
-| 3.5 | `platform/jenkins/casc/jenkins.yaml` — full JCasC configuration | pending |
+| 3.1 | `platform/docker-compose.yml` — all services with health checks, limits, named volumes | done |
+| 3.2 | `platform/.env` — all required env vars filled in | done |
+| 3.3 | `platform/jenkins/Dockerfile` — Jenkins LTS + Docker CLI + plugins | done |
+| 3.4 | `platform/jenkins/plugins.txt` — pinned plugin list compatible with Jenkins 2.452.3 | done |
+| 3.5 | `platform/jenkins/casc/jenkins.yaml` — full JCasC configuration | done |
+| 3.6 | `ansible/playbooks/deploy.yml` — copies full platform directory, pulls images, starts stack | done |
+| 3.7 | `scripts/fix-and-deploy.sh` — 7-check preflight script, auto-fixes known issues, then deploys | done |
+
+---
+
+**Issues encountered and resolved — Sprint 3 (2026-04-03 → 2026-04-04)**
+
+---
+
+**Issue 1 — `become_user: deploy` fails over SSM connection**
+
+_Symptom:_
+```
+Failed to set permissions on the temporary files Ansible needs to create when
+becoming an unprivileged user (rc: 1, err: })
+```
+
+_Root cause:_ `deploy.yml` used `become_user: deploy` on the `docker compose pull` and
+`docker compose up` tasks. The SSM connection plugin connects as root — privilege
+escalation _down_ to an unprivileged user requires ACL/tempfile support that is not
+available in the SSM session environment.
+
+_Fix:_ Remove `become_user: deploy` from the docker tasks. The SSM connection already
+runs as root via `become: true` at the play level. Root can run docker commands directly.
+The `deploy` user's docker group membership is only relevant for interactive sessions,
+not for Ansible-driven deploys.
+
+```yaml
+# BEFORE (broken):
+- name: Pull latest images
+  command: docker compose pull
+  args:
+    chdir: /opt/platform
+  become_user: "{{ deploy_user }}"   # <-- causes ACL error over SSM
+
+# AFTER (working):
+- name: Pull latest images
+  command: docker compose pull
+  args:
+    chdir: /opt/platform
+  # No become_user — SSM already runs as root
+```
+
+---
+
+**Issue 2 — `make deploy` ran from wrong region**
+
+_Symptom:_
+```
+aws: [ERROR]: An error occurred (InvalidInstanceID.NotFound) when calling the
+DescribeInstances operation: The instance ID 'i-0eb277f732ee785ac' does not exist
+```
+
+_Root cause:_ Early troubleshooting commands were written with `--region eu-west-3`
+(a copy-paste artifact). The project was deployed to `us-east-1`. The instance existed
+but in a different region — AWS returns "not found" across regions, not "wrong region".
+
+_Fix:_ Corrected all AWS CLI commands and scripts to use `--region us-east-1`, consistent
+with `infra/variables.tf` default and `infra/main.tf` backend config.
+
+_Lesson:_ Always verify the region in `infra/variables.tf` (`default = "us-east-1"`)
+before running any AWS CLI command. The Terraform state bucket and EC2 instance must be
+in the same region as the CLI target.
+
+---
+
+**Issue 3 — `docker compose up --build` requires buildx >= 0.17.0**
+
+_Symptom:_
+```
+Image platform-jenkins Building
+compose build requires buildx 0.17.0 or later
+```
+
+_Root cause:_ Amazon Linux 2023's native `docker` package ships with an older version of
+buildx that predates the 0.17.0 requirement introduced by Docker Compose v2.29+. We
+install the latest Docker Compose binary from GitHub releases, but the bundled buildx
+plugin comes from the Amazon package and is too old.
+
+_Fix:_ Add a task to the Ansible `docker` role that installs the latest `docker-buildx`
+binary from GitHub releases alongside the Compose plugin:
+
+```yaml
+- name: Install Docker buildx plugin (latest)
+  shell: |
+    set -e
+    VERSION=$(curl -sf "https://api.github.com/repos/docker/buildx/releases/latest" \
+      | grep '"tag_name"' | cut -d'"' -f4)
+    curl -sfL "https://github.com/docker/buildx/releases/download/${VERSION}/buildx-${VERSION}.linux-amd64" \
+      -o /usr/libexec/docker/cli-plugins/docker-buildx
+    chmod +x /usr/libexec/docker/cli-plugins/docker-buildx
+```
+
+For the live instance (already provisioned), this was applied directly via SSM using
+`scripts/install-buildx.json`.
+
+_Lesson:_ When mixing Amazon Linux native packages with GitHub-released binaries, always
+check version compatibility. Install both Compose and buildx from GitHub to guarantee
+version alignment.
+
+---
+
+**Issue 4 — SSM connection drops during `docker compose up` (timeout)**
+
+_Symptom:_
+```
+fatal: [i-0eb277f732ee785ac]: UNREACHABLE! => changed=false
+  msg: 'SSM exec_command timeout on host: i-0eb277f732ee785ac'
+```
+
+_Root cause:_ The SSM connection plugin holds a single long-running connection per task.
+`docker compose up --build` can take 3–5 minutes to build the Jenkins image and pull the
+other images — longer than the SSM session idle timeout.
+
+_Fix:_ Use Ansible `async` + `poll` so each poll is a fresh, short-lived SSM call instead
+of one blocking connection:
+
+```yaml
+- name: Build and start stack
+  command: docker compose up -d --remove-orphans --build
+  args:
+    chdir: /opt/platform
+  async: 600   # allow up to 10 minutes total
+  poll: 20     # check every 20 seconds (new SSM call each time)
+```
+
+---
+
+**Issue 5 — DNS broken inside Docker build containers**
+
+_Symptom:_
+```
+#7 240.7 W: Failed to fetch http://deb.debian.org/debian/dists/bookworm/InRelease
+             Temporary failure resolving 'deb.debian.org'
+E: Unable to locate package docker.io
+```
+
+_Root cause:_ The Docker daemon on the EC2 instance was not configured with explicit DNS
+servers. By default, Docker containers inherit the host's DNS resolver. On Amazon Linux 2023,
+the default DNS resolver is `169.254.169.253` (the AWS VPC resolver). This works for the
+host, but Docker containers run in a different network namespace and cannot reach it.
+Build containers that try to run `apt-get update` cannot resolve any Debian mirror hostnames.
+
+_Fix:_ Configure the Docker daemon to use Google's public DNS servers for all containers:
+
+```json
+// /etc/docker/daemon.json
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" },
+  "storage-driver": "overlay2",
+  "dns": ["8.8.8.8", "8.8.4.4"]
+}
+```
+
+Applied on the live instance via `scripts/fix-docker-dns.json` (SSM Run Command).
+Also added to `roles/docker/tasks/main.yml` for future provisions.
+
+Verified with:
+```bash
+docker run --rm alpine nslookup deb.debian.org
+# Expected: DNS_OK
+```
+
+_Lesson:_ Docker containers on EC2 do not automatically inherit the VPC resolver. Always
+set `"dns"` explicitly in `daemon.json` for instances that need to build images that do
+`apt-get`, `yum`, or any package install.
+
+---
+
+**Issue 6 — Jenkins plugin install fails: bad Prometheus version pin**
+
+_Symptom:_
+```
+failed to solve: process "/bin/sh -c jenkins-plugin-cli --plugin-file
+/usr/share/jenkins/ref/plugins.txt" did not complete successfully: exit code: 1
+```
+
+_Root cause:_ `plugins.txt` had `prometheus:777.v4f3f5e4b_76e0`. This version does not
+exist on the official Jenkins plugin update center. `jenkins-plugin-cli` exits with code 1
+(no verbose output by default) when it cannot locate a pinned version, making the error
+hard to identify without the `--verbose` flag.
+
+> **Note:** This root cause was identified with the help of an external AI assistant
+> (GPT-4o) after `--verbose` output was provided. The assistant confirmed that
+> `prometheus:777.v4f3f5e4b_76e0` does not appear on the Jenkins plugin release pages,
+> while `prometheus:779.vb_59179a_27643` does.
+
+_Fix:_
+```diff
+# platform/jenkins/plugins.txt
+-prometheus:777.v4f3f5e4b_76e0
++prometheus:779.vb_59179a_27643
+```
+
+Also added `--verbose --latest=false` to the Dockerfile to expose future failures clearly:
+```dockerfile
+RUN jenkins-plugin-cli --verbose --latest=false \
+    --plugin-file /usr/share/jenkins/ref/plugins.txt
+```
+
+---
+
+**Issue 7 — Jenkins plugin install fails: credentials-binding too new for Jenkins 2.452.3**
+
+_Symptom (from `--verbose` output):_
+```
+credentials-binding:687.v619cb_15e923f requires Jenkins 2.479
+credentials:1381.v2c3a_12074da_b_ requires Jenkins 2.462.3
+configuration-as-code:1810... wants configuration-as-code:1836...
+```
+
+_Root cause:_ Three plugin pins were for versions that require a newer Jenkins core than
+`2.452.3-lts`:
+- `credentials-binding:687.v619cb_15e923f` → requires Jenkins 2.479
+- `credentials` (transitive dep) → version resolved was too new for 2.452.3
+- `configuration-as-code:1810.v9b_c30a_249a_4c` → triggered a conflict with its own
+  transitive dependencies
+
+> **Note:** This resolution was identified by an external AI assistant (GPT-4o), which
+> cross-referenced the Jenkins plugin release pages to find versions compatible with
+> Jenkins 2.452.3 LTS.
+
+_Fix:_ Downgrade the three conflicting pins to versions that line up with Jenkins 2.452.3:
+
+```diff
+# platform/jenkins/plugins.txt
+-configuration-as-code:1810.v9b_c30a_249a_4c
++configuration-as-code:1775.v810dc950b_514
+
+-credentials-binding:687.v619cb_15e923f
++credentials-binding:677.vdc9d38cb_254d
+
++credentials:1337.v60b_d7b_c7b_c9f   # explicit pin to prevent auto-resolution to incompatible version
+```
+
+_Lesson:_ When pinning Jenkins plugins, always verify the "Required Core" field on the
+plugin's release page against your Jenkins LTS version. Plugin version numbers in Jenkins
+often embed the Jenkins core version requirement in the name (e.g. `687` → requires ~2.479).
+The `--latest=false` flag in `jenkins-plugin-cli` is essential — without it the CLI may
+silently resolve a newer version and break the build.
+
+---
+
+**Sprint 3 final result — 2026-04-04**
+```
+PLAY RECAP
+i-0eb277f732ee785ac : ok=6  changed=4  unreachable=0  failed=0  skipped=0  rescued=0  ignored=0
+```
+
+Stack state after Sprint 3:
+- Jenkins, Prometheus, and Grafana containers running on EC2
+- Jenkins image built from custom Dockerfile with Docker CLI and pinned plugins
+- Jenkins configured via JCasC — no manual UI wizard
+- Prometheus scraping Jenkins metrics at `:8080/prometheus`
+- Grafana provisioned with Prometheus datasource
+- Flask app service commented out in `docker-compose.yml` — built and pushed in Sprint 4
+- All deploy steps automated via `make deploy` (wrapped by `scripts/fix-and-deploy.sh` for preflight checks)
 
 ---
 

@@ -1,0 +1,13 @@
+{
+  "DocumentName": "AWS-RunShellScript",
+  "InstanceIds": ["i-0eb277f732ee785ac"],
+  "Parameters": {
+    "commands": [
+      "VERSION=$(curl -sf https://api.github.com/repos/docker/buildx/releases/latest | grep tag_name | cut -d'\"' -f4)",
+      "echo Installing buildx $VERSION",
+      "curl -sfL https://github.com/docker/buildx/releases/download/${VERSION}/buildx-${VERSION}.linux-amd64 -o /usr/libexec/docker/cli-plugins/docker-buildx",
+      "chmod +x /usr/libexec/docker/cli-plugins/docker-buildx",
+      "docker buildx version"
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "DocumentName": "AWS-RunShellScript",
+  "InstanceIds": ["i-0eb277f732ee785ac"],
+  "Parameters": {
+    "commands": [
+      "cat > /etc/docker/daemon.json << 'EOF'",
+      "{",
+      "  \"log-driver\": \"json-file\",",
+      "  \"log-opts\": { \"max-size\": \"10m\", \"max-file\": \"3\" },",
+      "  \"storage-driver\": \"overlay2\",",
+      "  \"dns\": [\"8.8.8.8\", \"8.8.4.4\"]",
+      "}",
+      "EOF",
+      "systemctl restart docker",
+      "sleep 3",
+      "docker run --rm alpine nslookup deb.debian.org && echo DNS_OK || echo DNS_FAIL"
+    ]
+  }
+}

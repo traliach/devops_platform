@@ -16,7 +16,7 @@ USER jenkins
 
 # Copy pinned plugin list and install at build time
 COPY plugins.txt /usr/share/jenkins/ref/plugins.txt
-RUN jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt
+RUN jenkins-plugin-cli --verbose --latest=false --plugin-file /usr/share/jenkins/ref/plugins.txt
 
 # JCasC config is mounted at runtime via volume — see docker-compose.yml
 # CASC_JENKINS_CONFIG env var points Jenkins to /var/jenkins_home/casc

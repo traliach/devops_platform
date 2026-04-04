@@ -11,19 +11,27 @@
   become: true
 
   tasks:
-    - name: Copy docker-compose.yml to server
+    - name: Ensure /opt/platform directory exists
+      file:
+        path: /opt/platform
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
+        mode: "0755"
+      tags: [deploy]
+
+    - name: Sync platform files to server
       copy:
-        src: ../../platform/docker-compose.yml
-        dest: /opt/platform/docker-compose.yml
+        src: ../../platform/
+        dest: /opt/platform/
         owner: "{{ deploy_user }}"
         group: "{{ deploy_group }}"
         mode: "0644"
       tags: [deploy]
 
-    - name: Copy .env file to server
-      copy:
-        src: ../../platform/.env
-        dest: /opt/platform/.env
+    - name: Lock down .env permissions
+      file:
+        path: /opt/platform/.env
         owner: "{{ deploy_user }}"
         group: "{{ deploy_group }}"
         mode: "0600"
@@ -33,12 +41,15 @@
       command: docker compose pull
       args:
         chdir: /opt/platform
-      become_user: "{{ deploy_user }}"
+      async: 300
+      poll: 15
       tags: [deploy]
 
-    - name: Deploy stack (up with remove orphans)
-      command: docker compose up -d --remove-orphans
+    # async/poll required: building Jenkins image takes 3-5 min — SSM times out on blocking commands
+    - name: Build and start stack
+      command: docker compose up -d --remove-orphans --build
       args:
         chdir: /opt/platform
-      become_user: "{{ deploy_user }}"
+      async: 600
+      poll: 20
       tags: [deploy]

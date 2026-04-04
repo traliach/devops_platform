@@ -30,6 +30,19 @@
     mode: "0755"
   tags: [docker, install]
 
+# docker-compose >= v2.29 requires buildx >= 0.17.0.
+# The buildx bundled with Amazon's docker package is too old.
+# Install the latest buildx plugin from GitHub releases.
+- name: Install Docker buildx plugin (latest)
+  shell: |
+    set -e
+    VERSION=$(curl -sf "https://api.github.com/repos/docker/buildx/releases/latest" \
+      | grep '"tag_name"' | cut -d'"' -f4)
+    curl -sfL "https://github.com/docker/buildx/releases/download/${VERSION}/buildx-${VERSION}.linux-amd64" \
+      -o /usr/libexec/docker/cli-plugins/docker-buildx
+    chmod +x /usr/libexec/docker/cli-plugins/docker-buildx
+  tags: [docker, install]
+
 - name: Enable and start Docker service
   systemd:
     name: docker
@@ -38,7 +51,7 @@
     daemon_reload: true
   tags: [docker, service]
 
-- name: Configure Docker daemon (log rotation + storage driver)
+- name: Configure Docker daemon (log rotation + storage driver + DNS)
   copy:
     dest: /etc/docker/daemon.json
     content: |
@@ -48,7 +61,8 @@
           "max-size": "10m",
           "max-file": "3"
         },
-        "storage-driver": "overlay2"
+        "storage-driver": "overlay2",
+        "dns": ["8.8.8.8", "8.8.4.4"]
       }
     mode: "0644"
   notify: restart docker

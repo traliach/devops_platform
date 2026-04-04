@@ -1,10 +1,10 @@
 ---
 # platform/docker-compose.yml
 # Runs the full devops-platform-lab stack:
-#   Jenkins LTS → CI/CD for the Flask app
-#   Prometheus   → scrapes Jenkins + Flask app + node_exporter metrics
+#   Jenkins LTS → CI/CD for the Manga Hub React app
+#   Prometheus   → scrapes Jenkins metrics
 #   Grafana      → dashboards fed by Prometheus
-#   Flask app    → sample Python app being built and deployed by Jenkins
+#   manga-hub    → React app built and pushed to GHCR by Jenkins pipeline
 #
 # All images pinned — never use latest
 # All services have health checks, resource limits, named volumes, restart policy
@@ -97,26 +97,25 @@ services:
     ports:
       - "3000:3000"
 
-  # ── Flask app ─────────────────────────────────────────────────────────────────
-  flask-app:
-    image: ghcr.io/${GHCR_USERNAME}/flask-app:${FLASK_APP_VERSION:-latest}
-    container_name: flask-app
+  # ── Manga Hub (React app) ─────────────────────────────────────────────────────
+  # Image built by Jenkins pipeline and pushed to GHCR
+  # Dockerfile lives in: https://github.com/traliach/React_Web_Application_Project
+  manga-hub:
+    image: ghcr.io/${GHCR_USERNAME}/manga-hub:${APP_VERSION:-latest}
+    container_name: manga-hub
     restart: unless-stopped
     mem_limit: 128m
     cpus: "0.25"
-    environment:
-      - FLASK_ENV=production
     networks:
       - platform
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
-    # Flask app is internal only — Prometheus scrapes it, not exposed to host
-    expose:
-      - "5000"
+    ports:
+      - "80:80"
 
 # ── Named volumes ──────────────────────────────────────────────────────────────
 volumes:
