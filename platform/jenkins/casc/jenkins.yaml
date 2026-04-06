@@ -6,7 +6,7 @@ jenkins:
   systemMessage: "devops-platform-lab | Managed by JCasC — do not configure via UI"
   # 0 executors on controller — builds run on agents, not the controller node
   # Keeps the controller stable and responsive (Jenkins best practice)
-  numExecutors: 0
+  numExecutors: 2
   mode: NORMAL
   scmCheckoutRetryCount: 2
 

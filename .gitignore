@@ -51,4 +51,4 @@ credentials.csv
 *.ppk
 CLAUDE_devops_platform_lab.md
 runbook.md
-runbook.md
+docs/runbook.md

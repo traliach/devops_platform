@@ -25,6 +25,9 @@ services:
       - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
       - JENKINS_JAVA_OPTS=-XX:+UseG1GC -XX:MaxRAMPercentage=60.0 -XX:InitialRAMPercentage=20.0
       - CASC_JENKINS_CONFIG=/var/jenkins_home/casc
+      - JENKINS_ADMIN_PASSWORD=${JENKINS_ADMIN_PASSWORD}
+      - GHCR_USERNAME=${GHCR_USERNAME}
+      - GHCR_TOKEN=${GHCR_TOKEN}
     volumes:
       - jenkins_home:/var/jenkins_home
       - ./jenkins/casc:/var/jenkins_home/casc:ro
