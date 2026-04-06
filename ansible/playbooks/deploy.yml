@@ -37,17 +37,29 @@
         mode: "0600"
       tags: [deploy]
 
+    # Login to GHCR so EC2 can pull the manga-hub image once Jenkins has built it
+    - name: Login to GHCR
+      shell: |
+        source /opt/platform/.env
+        echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
+      args:
+        executable: /bin/bash
+      no_log: true
+      tags: [deploy]
+
+    # --ignore-pull-failures: skip images that don't exist yet (e.g. manga-hub before first Jenkins build)
     - name: Pull latest images
-      command: docker compose pull
+      command: docker compose pull --ignore-pull-failures
       args:
         chdir: /opt/platform
       async: 300
       poll: 15
       tags: [deploy]
 
-    # async/poll required: building Jenkins image takes 3-5 min — SSM times out on blocking commands
-    - name: Build and start stack
-      command: docker compose up -d --remove-orphans --build
+    # Start core services only — manga-hub is excluded until Jenkins builds the image
+    # Once Jenkins has pushed ghcr.io/traliach/manga-hub, run make deploy again to start it
+    - name: Build and start core stack
+      command: docker compose up -d --remove-orphans --build jenkins prometheus grafana
       args:
         chdir: /opt/platform
       async: 600

@@ -4,11 +4,12 @@
 
 jenkins:
   systemMessage: "devops-platform-lab | Managed by JCasC — do not configure via UI"
-  numExecutors: 2
+  # 0 executors on controller — builds run on agents, not the controller node
+  # Keeps the controller stable and responsive (Jenkins best practice)
+  numExecutors: 0
   mode: NORMAL
   scmCheckoutRetryCount: 2
 
-  # Security — matrix-based, admin user only
   authorizationStrategy:
     loggedInUsersCanDoAnything:
       allowAnonymousRead: false
@@ -20,7 +21,6 @@ jenkins:
         - id: "admin"
           password: "${JENKINS_ADMIN_PASSWORD}"
 
-  # Global tool configuration
   globalNodeProperties:
     - envVars:
         env:
@@ -31,7 +31,7 @@ jenkins:
 
 unclassified:
   location:
-    url: "http://localhost:8080/"
+    url: "http://54.159.150.73:8080/"
 
   # Prometheus metrics endpoint — scraped by Prometheus container
   prometheusConfiguration:
@@ -52,10 +52,13 @@ credentials:
   system:
     domainCredentials:
       - credentials:
-          # Docker Hub / GHCR token — used by Jenkinsfile to push images
           - usernamePassword:
               scope: GLOBAL
               id: "ghcr-credentials"
               description: "GHCR credentials for pushing manga-hub image"
               username: "${GHCR_USERNAME}"
               password: "${GHCR_TOKEN}"
+
+# NOTE: manga-hub pipeline job is created manually via Jenkins UI after first boot
+# The jobs: block requires job-dsl plugin which is not installed
+# To add job-dsl support later, add 'job-dsl' to plugins.txt and restore the jobs: block
