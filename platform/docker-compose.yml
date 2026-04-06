@@ -32,6 +32,7 @@ services:
       - jenkins_home:/var/jenkins_home
       - ./jenkins/casc:/var/jenkins_home/casc:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/platform:/opt/platform:ro
     networks:
       - platform
     healthcheck:
