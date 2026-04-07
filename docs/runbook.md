@@ -30,10 +30,10 @@ GitHub → GitHub Actions (CI/CD validation)
             ↓ configured by Ansible
             ↓
         Docker Compose stack
-        ├── Jenkins LTS        (CI/CD — builds & deploys Flask app)
-        ├── Prometheus         (metrics scraping — Jenkins + Flask app + node)
-        ├── Grafana            (dashboards — pipeline health + app performance)
-        └── Flask app          (sample Python app — the thing being deployed)
+        ├── Jenkins LTS        (CI/CD — builds & deploys Manga Hub React app)
+        ├── Prometheus         (metrics scraping — Jenkins + node_exporter)
+        ├── Grafana            (dashboards — pipeline health + system metrics)
+        └── manga-hub          (React + TypeScript SPA served via Nginx)
 ```
 
 ---
@@ -654,17 +654,441 @@ Stack state after Sprint 3:
 
 ---
 
-### Sprint 4 — Flask Application + Jenkins Pipeline
-**Goal:** Jenkins automatically builds, tests, and deploys the Flask app on every push to main.
-**Deliverable:** Passing Jenkins pipeline — Checkout → Test → Build → Push → Deploy.
+### Sprint 4 — Manga Hub App + Jenkins Pipeline
+**Goal:** Jenkins automatically builds, pushes, and deploys the Manga Hub React app on every push to main.
+**Deliverable:** Passing Jenkins pipeline — Checkout → Build (npm) → Docker Build → Push to GHCR → Deploy.
+**Status: COMPLETE — 2026-04-06** ✓
 
 | Step | Task | Status |
 |------|------|--------|
-| 4.1 | `app/src/app.py` — Flask app with `/`, `/health`, `/metrics` endpoints | pending |
-| 4.2 | `app/Dockerfile` — multi-stage, non-root, Python 3.12-alpine | pending |
-| 4.3 | `app/requirements.txt` — pinned dependencies | pending |
-| 4.4 | `app/tests/test_app.py` — pytest (health + metrics endpoints) | pending |
-| 4.5 | `app/Jenkinsfile` — declarative pipeline (Checkout → Test → Build → Push → Deploy) | pending |
+| 4.1 | Pivot from Flask to Manga Hub React app (https://github.com/traliach/React_Web_Application_Project) | done |
+| 4.2 | `app/Dockerfile` — multi-stage Node build → Nginx serve | done |
+| 4.3 | `app/nginx.conf` — SPA routing config (try_files for React Router) | done |
+| 4.4 | `app/Jenkinsfile` — declarative pipeline (Checkout → Build → Docker Build → Push to GHCR → Deploy) | done |
+| 4.5 | Jenkins running cleanly with JCasC applied and admin user configured | done |
+| 4.6 | Jenkins pipeline running — all stages green (build #8) | done |
+| 4.7 | manga-hub container deployed on EC2, served on port 80 | done |
+
+---
+
+**Issues encountered and resolved — Sprint 4 (2026-04-05 → 2026-04-06)**
+
+---
+
+**Issue 1 — App pivot: Flask replaced with Manga Hub React app**
+
+_Background:_ The original Sprint 4 plan used a sample Flask app as the deployment target.
+The decision was made to replace it with a real application — Manga Hub, a React + TypeScript
+single-page application already in production at https://github.com/traliach/React_Web_Application_Project.
+
+_Changes made:_
+- `docker-compose.yml` — Flask service removed, `manga-hub` service added
+- `app/Dockerfile` — multi-stage Node 20 build → Nginx alpine serve
+- `app/nginx.conf` — SPA catch-all route (`try_files $uri /index.html`) for React Router
+- `app/Jenkinsfile` — declarative pipeline targeting GHCR (`ghcr.io/traliach/manga-hub`)
+- All three files pushed to the `React_Web_Application_Project` GitHub repo
+
+_Key decision:_ Using GHCR (GitHub Container Registry) as the image registry — free for public
+repos, no Docker Hub rate limits, authentication reuses the existing GitHub PAT (`GHCR_TOKEN`).
+
+---
+
+**Issue 2 — Jenkins plugin cyclic dependency (credentials:1337 disabled all plugins)**
+
+_Symptom:_
+```
+credentials:1337.v60b_d7b_c7b_c9f has been disabled
+workflow-aggregator: requires credentials >= 1340
+configuration-as-code: requires credentials >= 1350
+```
+All plugins disabled in chain. Jenkins UI showed empty plugin list.
+
+_Root cause:_ `plugins.txt` mixed pinned plugin versions that had incompatible inter-dependency
+requirements with Jenkins `2.452.3-lts`. The `credentials:1337` pin was too old for the
+other plugins but too new for some transitive dependencies, creating a cyclic conflict.
+
+_Fix:_ Remove ALL version pins from `plugins.txt`. Let `jenkins-plugin-cli` resolve the
+latest compatible versions. Simultaneously upgraded the Jenkins base image from
+`2.452.3-lts-jdk17` to `lts-jdk21` to eliminate the version boundary conflicts entirely.
+
+```diff
+# platform/jenkins/plugins.txt — all version pins removed
+-git:5.2.2
+-workflow-aggregator:596.v8c21c963d92d
+-credentials-binding:677.vdc9d38cb_254d
+...
++git
++workflow-aggregator
++docker-workflow
++prometheus
++configuration-as-code
++github
++pipeline-stage-view
++credentials-binding
+```
+
+```diff
+# platform/jenkins/Dockerfile
+-FROM jenkins/jenkins:2.452.3-lts-jdk17
++FROM jenkins/jenkins:lts-jdk21
+```
+
+_Lesson:_ Pinning plugin versions in Jenkins is fragile due to the deep transitive dependency
+graph. For a lab environment, unpinned versions with `lts-jdk21` (latest LTS) is the correct
+strategy — only pin when a specific version is required for a compliance or regression reason.
+
+---
+
+**Issue 3 — Jenkins hanging on startup (15+ minutes, never ready)**
+
+_Symptom:_ Jenkins container started but never became healthy. `curl http://localhost:8080/login`
+timed out after 15 minutes. The health check never passed.
+
+_Root cause (three combined):_
+1. **`jobs:` block in `jenkins.yaml`** — JCasC tried to seed pipeline jobs using the `jobs:` 
+   key, which requires the `job-dsl` plugin. `job-dsl` was not in `plugins.txt`. JCasC silently
+   hung waiting for a plugin that would never load.
+2. **JVM heap too aggressive** — `-Xmx768m` on a 2GB instance with Grafana, Prometheus, and
+   the Docker daemon also running caused constant GC pressure and near-OOM conditions.
+3. **`curl` missing from Jenkins image** — The health check ran `curl -sf http://localhost:8080/login`
+   but `curl` was not installed in the base `jenkins/jenkins:lts-jdk21` image.
+   The health check always exited 127 (command not found), so the container was never
+   marked healthy even when Jenkins was actually up.
+
+_Fix 1:_ Remove `jobs:` block from `jenkins.yaml`. Pipeline jobs are created manually via
+the Jenkins UI or will be added via JCasC `job-dsl` once that plugin is added.
+
+_Fix 2:_ Replace fixed `-Xmx768m` heap with `MaxRAMPercentage` — JVM adapts to actual
+available memory and stays within container limits:
+```yaml
+# docker-compose.yml — Jenkins environment
+- JENKINS_JAVA_OPTS=-XX:+UseG1GC -XX:MaxRAMPercentage=60.0 -XX:InitialRAMPercentage=20.0
+```
+
+_Fix 3:_ Add `curl` to the Jenkins Dockerfile:
+```dockerfile
+RUN apt-get install -y --no-install-recommends docker.io docker-cli curl
+```
+
+---
+
+**Issue 4 — Jenkins setup wizard showing instead of JCasC login page**
+
+_Symptom:_ After Jenkins started, the browser showed the "Create First Admin User" wizard
+at `http://54.159.150.73:8080/securityRealm/firstUser` instead of the JCasC login page.
+
+_Root cause (two layers):_
+
+**Layer 1 — `JAVA_OPTS` and `JENKINS_JAVA_OPTS` split incorrectly.**
+The original compose file had a single `JAVA_OPTS` containing both the wizard flag and GC settings:
+```yaml
+- JAVA_OPTS=-Djenkins.install.runSetupWizard=false -XX:+UseG1GC -XX:MaxRAMPercentage=60.0
+```
+When split for clarity into two variables, the wizard flag was left in `JAVA_OPTS` — which
+is correct. However, Docker Compose was not picking it up cleanly until the jenkins_home
+volume was wiped (the volume retained the old wizard state from a previous run).
+
+**Layer 2 — `JENKINS_ADMIN_PASSWORD` not passed to the container.**
+Docker Compose `.env` files are used for **variable substitution in docker-compose.yml**, not
+for automatically injecting all variables into every container's environment. Because
+`JENKINS_ADMIN_PASSWORD`, `GHCR_USERNAME`, and `GHCR_TOKEN` were in `.env` but not referenced
+in the Jenkins `environment:` block, they were never set inside the container. JCasC tried
+to substitute `${JENKINS_ADMIN_PASSWORD}` in `jenkins.yaml`, got an empty string, could not
+configure the security realm, and Jenkins fell through to the wizard.
+
+The page `securityRealm/firstUser` (not `/setupWizard/`) appearing was the diagnostic clue:
+it means `runSetupWizard=false` **was** working (full wizard suppressed), but JCasC failed
+to create the admin user (no security realm = no users = first-user prompt).
+
+_Fix:_
+```yaml
+# platform/docker-compose.yml — Jenkins environment section
+environment:
+  - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
+  - JENKINS_JAVA_OPTS=-XX:+UseG1GC -XX:MaxRAMPercentage=60.0 -XX:InitialRAMPercentage=20.0
+  - CASC_JENKINS_CONFIG=/var/jenkins_home/casc
+  - JENKINS_ADMIN_PASSWORD=${JENKINS_ADMIN_PASSWORD}   # ← was missing
+  - GHCR_USERNAME=${GHCR_USERNAME}                     # ← was missing
+  - GHCR_TOKEN=${GHCR_TOKEN}                           # ← was missing
+```
+
+After applying this fix, the volume was wiped and Jenkins restarted:
+```bash
+docker compose stop jenkins && docker compose rm -f jenkins \
+  && docker volume rm jenkins_home && docker compose up -d jenkins
+```
+
+_Lesson:_ Docker Compose `.env` is for **build-time/compose-file substitution only**. To inject
+a variable from `.env` into a running container, it must appear explicitly in the service's
+`environment:` block using `KEY=${KEY}` syntax. Failure to do this is silent — JCasC will
+silently fail on unresolved variables, with no SEVERE log entry.
+
+---
+
+**Issue 5 — Jenkins numExecutors: 0 — builds queued forever**
+
+_Symptom:_ Build started, then immediately showed:
+```
+Still waiting to schedule task
+Waiting for next available executor
+```
+Build stayed in queue indefinitely.
+
+_Root cause:_ `jenkins.yaml` JCasC config had `numExecutors: 0`. This is a best practice
+for distributed Jenkins setups (controller should not run builds — agents should). But for
+this single-node lab, it means zero capacity to run any job.
+
+_Fix:_ Set `numExecutors: 2` in `jenkins.yaml`. Since JCasC reloads live, no container restart
+was needed — go to **Manage Jenkins → Configuration as Code → Reload existing configuration**.
+
+```yaml
+# platform/jenkins/casc/jenkins.yaml
+jenkins:
+  numExecutors: 2   # was: 0
+```
+
+---
+
+**Issue 6 — `docker: not found` inside Jenkins container during pipeline Build stage**
+
+_Symptom:_
+```
+[Pipeline] sh
++ docker inspect -f . node:20-alpine
+script.sh: 1: docker: not found
+ERROR: script returned exit code 127
+```
+The Build stage uses `agent { docker { image 'node:20-alpine' } }` — the Docker Pipeline
+plugin calls the `docker` CLI to pull and run the build container.
+
+_Root cause:_ The Jenkins Dockerfile installs `docker.io` with `--no-install-recommends`.
+On Debian trixie (the base for `jenkins/jenkins:lts-jdk21`), the `docker.io` package splits
+the daemon and CLI into separate packages. `docker-cli` is listed as a **recommended** package
+of `docker.io` — not a dependency. With `--no-install-recommends`, only the daemon binaries
+(`dockerd`, `containerd`, `runc`) were installed. The `docker` CLI binary was never installed.
+
+_Diagnosis command:_
+```bash
+docker exec jenkins which docker    # returns: NOT_FOUND
+docker exec jenkins find /usr -name docker -type f   # returns: empty
+```
+
+_Fix:_ Explicitly add `docker-cli` to the Dockerfile install list:
+```dockerfile
+RUN apt-get install -y --no-install-recommends \
+    docker.io \
+    docker-cli \   # ← added
+    curl
+```
+
+_Lesson:_ On Debian trixie+, `docker.io` no longer bundles the CLI. Always install
+`docker-cli` explicitly. The `--no-install-recommends` flag is valuable for keeping
+image size down but requires explicitly naming everything you need.
+
+---
+
+**Issue 7 — Docker socket `permission denied` for jenkins user**
+
+_Symptom:_
+```
+permission denied while trying to connect to the Docker daemon socket at
+unix:///var/run/docker.sock: dial unix /var/run/docker.sock: connect: permission denied
+```
+Even after `docker-cli` was installed, the `jenkins` user inside the container could not
+connect to the Docker daemon.
+
+_Root cause:_ The Docker socket `/var/run/docker.sock` is owned by the `docker` group on
+the EC2 host. That group has GID **993** on this instance. Inside the Jenkins container,
+the `jenkins` user was not a member of any group with GID 993, so the socket was
+inaccessible.
+
+_Diagnosis:_
+```bash
+# On EC2 host:
+stat -c "%g" /var/run/docker.sock   # → 993
+
+# Inside container:
+docker exec -u jenkins jenkins docker ps  # → permission denied
+```
+
+_Fix:_ Create a group with GID 993 inside the container and add `jenkins` to it:
+```dockerfile
+RUN apt-get install -y --no-install-recommends \
+    docker.io \
+    docker-cli \
+    curl \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g 993 docker-host \
+    && usermod -aG docker-host jenkins
+```
+
+The group is named `docker-host` (not `docker`) to avoid conflicting with the `docker`
+group that `docker.io` creates inside the container with a different GID.
+
+_Important:_ GID 993 is specific to this EC2 instance provisioned by Ansible with Docker
+installed from Amazon's native packages. If you provision a new instance, verify:
+```bash
+stat -c "%g" /var/run/docker.sock
+```
+and update the Dockerfile GID accordingly.
+
+_Lesson:_ Docker socket bind-mounts work by GID, not group name. The GID inside the
+container must match the GID that owns the socket on the host. Always check the host
+socket GID after provisioning a new server.
+
+---
+
+**Issue 8 — Deploy stage: `aws ssm send-command` not available inside Jenkins container**
+
+_Symptom:_
+```
+sh: aws: not found
+ERROR: script returned exit code 127
+```
+
+_Root cause:_ The original Deploy stage used `aws ssm send-command` to tell the EC2 instance
+to restart the `manga-hub` container remotely. But Jenkins **runs on the same EC2 instance** as
+the target — there is no reason to go via SSM. Additionally, `aws` CLI is not installed in
+the Jenkins container.
+
+_Fix:_ Replace the SSM approach with a direct `docker-compose` call — Jenkins already has
+the Docker socket bind-mounted and can control the host Docker daemon directly:
+
+```groovy
+stage('Deploy') {
+    steps {
+        withCredentials([usernamePassword(
+            credentialsId: 'ghcr-credentials',
+            usernameVariable: 'GHCR_USER',
+            passwordVariable: 'GHCR_PASS'
+        )]) {
+            sh """
+                echo "\${GHCR_PASS}" | docker login ghcr.io -u "\${GHCR_USER}" --password-stdin
+                APP_VERSION=${IMAGE_TAG} docker-compose -f /opt/platform/docker-compose.yml up -d --remove-orphans manga-hub
+            """
+        }
+    }
+}
+```
+
+---
+
+**Issue 9 — Deploy stage: `docker compose` plugin not available — `unknown shorthand flag: 'f'`**
+
+_Symptom:_
+```
++ APP_VERSION=4 docker compose -f /opt/platform/docker-compose.yml up -d manga-hub
+unknown shorthand flag: 'f' in -f
+```
+
+_Root cause:_ `docker compose` (with space) is a **CLI plugin** form of Docker Compose. It
+requires the compose binary to be installed as a Docker CLI plugin under
+`/usr/local/lib/docker/cli-plugins/`. The Jenkins container has `docker.io` from Debian's
+apt repos — this package does **not** include the compose plugin. When `docker` sees
+`compose`, it does not recognize it as a subcommand and treats `-f` as an unknown flag for
+the top-level `docker` command.
+
+_Fix (step 1):_ Install `docker-compose` standalone binary from GitHub releases in the Dockerfile:
+```dockerfile
+&& curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64" \
+   -o /usr/local/bin/docker-compose \
+&& chmod +x /usr/local/bin/docker-compose
+```
+
+_Fix (step 2):_ Use `docker-compose` (hyphen) in the Jenkinsfile instead of `docker compose` (space).
+
+---
+
+**Issue 10 — Deploy stage: `/opt/platform/docker-compose.yml: no such file or directory`**
+
+_Symptom:_
+```
++ APP_VERSION=5 docker-compose -f /opt/platform/docker-compose.yml up -d manga-hub
+open /opt/platform/docker-compose.yml: no such file or directory
+```
+
+_Root cause:_ `/opt/platform/` exists on the **EC2 host** but is not visible inside the
+Jenkins container. Docker containers have their own filesystem — paths on the host are only
+accessible if they are bind-mounted into the container.
+
+_Fix:_ Add a read-only bind mount for `/opt/platform` in the Jenkins service in `docker-compose.yml`:
+```yaml
+volumes:
+  - jenkins_home:/var/jenkins_home
+  - ./jenkins/casc:/var/jenkins_home/casc:ro
+  - /var/run/docker.sock:/var/run/docker.sock
+  - /opt/platform:/opt/platform:ro   # ← added
+```
+
+After this change, Jenkins must be force-recreated (not just restarted) to pick up the new mount:
+```bash
+docker compose up -d --force-recreate jenkins
+```
+
+_Note:_ Read-only (`:ro`) is correct — Jenkins only needs to read the Compose file to run
+`docker-compose up`. It should not be able to modify platform config files.
+
+---
+
+**Issue 11 — Deploy stage: `/opt/platform/.env: permission denied`**
+
+_Symptom:_
+```
++ APP_VERSION=6 docker-compose -f /opt/platform/docker-compose.yml up -d manga-hub
+open /opt/platform/.env: permission denied
+```
+
+_Root cause:_ The Ansible `deploy.yml` playbook locks down `/opt/platform/.env` to
+`root:root 600` for security — secrets should never be world-readable. The Jenkins container
+runs as the `jenkins` user, which is not root and has no access to the file.
+`docker-compose` automatically tries to load `.env` from the project directory
+(the directory containing the Compose file) when running any `up`/`pull`/`run` command.
+
+_Fix:_ Pass `--env-file /dev/null` to tell `docker-compose` to skip the `.env` file entirely,
+and supply the two variables `manga-hub` needs (`GHCR_USERNAME`, `APP_VERSION`) directly as
+inline environment variables:
+
+```groovy
+sh """
+    echo "\${GHCR_PASS}" | docker login ghcr.io -u "\${GHCR_USER}" --password-stdin
+    GHCR_USERNAME=\${GHCR_USER} APP_VERSION=${IMAGE_TAG} docker-compose --env-file /dev/null \
+      -f /opt/platform/docker-compose.yml up -d --remove-orphans manga-hub
+"""
+```
+
+_Why `--env-file /dev/null` and not `COMPOSE_DISABLE_ENV_FILE=1`:_ Both work. `--env-file /dev/null`
+is an explicit override supported by all Compose versions. `COMPOSE_DISABLE_ENV_FILE=1` is
+cleaner but is a newer addition — `/dev/null` is safer for portability across Compose versions.
+
+_Lesson:_ When Jenkins runs `docker-compose` against a Compose file it can read (`:ro` mount)
+but cannot read the adjacent `.env`, Compose will fail with `permission denied` before starting
+any containers. The fix is always to either grant read access to `.env` (not recommended —
+it contains secrets) or bypass `.env` loading entirely and pass required vars inline.
+
+---
+
+**Sprint 4 final result — 2026-04-06** ✓
+
+Pipeline build #8 — all stages green:
+
+| Stage | Status | Time | Notes |
+|-------|--------|------|-------|
+| Declarative: Checkout SCM | ✓ green | 584ms | Git clone from GitHub |
+| Checkout | ✓ green | 525ms | Second checkout (Jenkinsfile stage) |
+| Build | ✓ green | 20s | `npm ci` + `npm run build` via `node:20-alpine` |
+| Docker Build | ✓ green | 30s | Multi-stage Dockerfile built successfully |
+| Push to GHCR | ✓ green | 3s | Image pushed to `ghcr.io/traliach/manga-hub:8` |
+| Deploy | ✓ green | 1s | manga-hub container started on EC2 port 80 |
+| Post Actions | ✓ green | 340ms | Local image cleanup |
+
+Total pipeline runtime: ~59 seconds.
+
+Stack state after Sprint 4:
+- Jenkins pipeline fully automated — push to main triggers build
+- manga-hub image built and pushed to `ghcr.io/traliach/manga-hub` on every build
+- manga-hub React app running as a container on EC2, served on port 80 via Nginx
+- All secrets remain in `/opt/platform/.env` (root:root 600) — never exposed to Jenkins
 
 ---
 
