@@ -6,6 +6,26 @@
 ![License](https://img.shields.io/github/license/traliach/devops_platform)
 ![Tag](https://img.shields.io/github/v/tag/traliach/devops_platform)
 
+## Screenshots
+
+### Manga Hub — Live on EC2
+![Manga Hub app running on EC2](docs/screenshots/Screenshot%202026-04-07%20005324.png)
+
+### Jenkins Pipeline — All Stages Green
+![Jenkins pipeline stage view](docs/screenshots/jenkins-pipeline.png)
+
+### Jenkins Build #9 — Success in 46s
+![Jenkins build status](docs/screenshots/jenkins-build-status.png)
+
+### Jenkins Console Output — Finished: SUCCESS
+![Jenkins console output](docs/screenshots/jenkins-console.png)
+
+### Jenkins Metrics Endpoint — Live Pipeline Data
+![Jenkins Prometheus metrics](docs/screenshots/jenkins-metrics.png)
+
+### GitHub Actions CI — All Jobs Green
+![GitHub Actions CI workflow](docs/screenshots/github-actions.png)
+
 ## Overview
 
 A fully automated, self-hosted DevOps platform built as a portfolio project. It provisions an AWS EC2 instance with Terraform, configures it with Ansible, and runs a Docker Compose stack containing:
