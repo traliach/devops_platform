@@ -1,3 +1,14 @@
+# platform/prometheus/prometheus.yml
+# Prometheus scrape configuration for the devops-platform-lab stack.
+#
+# scrape_interval: how often Prometheus collects metrics from each target.
+#   15s is the Jenkins Prometheus plugin default — lowering this increases load,
+#   raising it reduces resolution. 15s is appropriate for a single-instance lab.
+#
+# evaluation_interval: how often Prometheus evaluates alerting/recording rules.
+#   Set equal to scrape_interval — no rules are defined yet, but this is the
+#   correct default when rules are added in Sprint 5.
+
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -5,15 +16,21 @@ global:
 scrape_configs:
 
   # Jenkins metrics — exposed by the Prometheus plugin at /prometheus
+  # The plugin must be installed (see plugins.txt) and configured (see casc/jenkins.yaml)
+  # Metrics include: build counts, queue depth, executor usage, JVM heap, plugin stats
   - job_name: jenkins
     metrics_path: /prometheus
     static_configs:
       - targets: ["jenkins:8080"]
 
-  # Prometheus self-monitoring
+  # Prometheus self-monitoring — tracks its own scrape performance, memory, and TSDB stats
+  # Useful for diagnosing if Prometheus is falling behind on scrapes or running out of storage
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
 
-  # Note: manga-hub is a static React app (Nginx) — no /metrics endpoint.
-  # Application metrics are not available. Pipeline metrics come from Jenkins above.
+  # Note: manga-hub is a static React SPA served by Nginx — it has no /metrics endpoint.
+  # Application-level metrics (request rate, error rate, latency) are not available from
+  # the app itself. Pipeline build health is tracked via the Jenkins scrape above.
+  # To add app metrics in future: instrument Nginx with nginx-prometheus-exporter
+  # and add a scrape target here pointing to its metrics port.

@@ -1,8 +1,38 @@
+# platform/jenkins/plugins.txt
+# Jenkins plugin list — installed at image build time by jenkins-plugin-cli.
+#
+# Versions are intentionally NOT pinned. Pinning caused cyclic dependency failures
+# when plugin versions were incompatible with each other or with the Jenkins LTS core.
+# jenkins-plugin-cli resolves the latest versions compatible with the current LTS core.
+#
+# To add a plugin: add the plugin ID here and rebuild the Jenkins image.
+# Plugin IDs come from https://plugins.jenkins.io/
+
+# Git integration — clone repos, checkout branches, poll SCM
 git
+
+# Declarative Pipeline support (pipeline {} syntax, stages, post blocks)
+# This is a meta-plugin that pulls in all pipeline-related plugins as a bundle
 workflow-aggregator
+
+# Docker Pipeline steps — docker.build(), docker.withRegistry(), agent { docker {} }
+# Required for the Build stage (node:20-alpine agent) and Docker Build/Push stages
 docker-workflow
+
+# Exposes Jenkins metrics at /prometheus for Prometheus to scrape
+# Configured in casc/jenkins.yaml under unclassified.prometheusConfiguration
 prometheus
+
+# Jenkins Configuration as Code — loads jenkins.yaml at startup
+# Allows the entire Jenkins config (security, credentials, env vars) to be managed as code
 configuration-as-code
+
+# GitHub integration — webhook triggers, commit status updates, GitHub API access
 github
+
+# Visual pipeline stage view on the job dashboard (the coloured stage grid)
 pipeline-stage-view
+
+# Binds credentials (username/password, secret text) as environment variables in pipeline steps
+# Used in the Deploy stage: withCredentials([usernamePassword(credentialsId: 'ghcr-credentials'...)])
 credentials-binding
