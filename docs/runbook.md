@@ -1093,33 +1093,58 @@ Stack state after Sprint 4:
 ---
 
 ### Sprint 5 — Observability (Prometheus + Grafana)
-**Goal:** Live dashboards showing Jenkins pipeline health and Flask app performance.
-**Deliverable:** Two working Grafana dashboards fed by Prometheus scrape data.
+**Goal:** Prometheus scraping Jenkins metrics, Grafana dashboard provisioned as code.
+**Deliverable:** Jenkins dashboard auto-loads in Grafana on fresh deploy — no manual import.
+**Status: COMPLETE — 2026-04-07** ✓
 
 | Step | Task | Status |
 |------|------|--------|
-| 5.1 | `platform/prometheus/prometheus.yml` — scrape configs (Jenkins + Flask + node_exporter) | pending |
-| 5.2 | `platform/grafana/provisioning/datasources/prometheus.yaml` — auto-provision datasource | pending |
-| 5.3 | `platform/grafana/provisioning/dashboards/dashboards.yaml` — dashboard provisioning config | pending |
-| 5.4 | `platform/grafana/dashboards/jenkins.json` — pipeline success rate, build duration, queue depth | pending |
-| 5.5 | `platform/grafana/dashboards/flask-app.json` — request rate, error rate, p95 latency | pending |
+| 5.1 | `platform/prometheus/prometheus.yml` — scrape configs (Jenkins + Prometheus self-monitoring) | done |
+| 5.2 | `platform/grafana/provisioning/datasources/prometheus.yaml` — auto-provision Prometheus datasource | done |
+| 5.3 | `platform/grafana/provisioning/dashboards/dashboards.yaml` — dashboard provisioning config | done |
+| 5.4 | `platform/grafana/dashboards/jenkins.json` — Jenkins Performance and Health Overview (dashboard ID 9964) | done |
+
+**Key decisions:**
+- Prometheus scrapes Jenkins at `http://jenkins:8080/prometheus` — internal Docker network, no public exposure
+- Grafana datasource provisioned via `provisioning/datasources/prometheus.yaml` — loads automatically on container start, cannot be modified via UI ("Provisioned data source" badge)
+- Jenkins dashboard JSON downloaded from Grafana community (ID 9964) and committed to repo — auto-loads on every fresh Grafana deploy without manual import
+- Port 9090 (Prometheus) intentionally not exposed publicly — internal only by design
 
 ---
 
 ### Sprint 6 — Automation, CI/CD & Docs
-**Goal:** Everything is automated, validated by CI, and documented for handoff.
-**Deliverable:** GitHub Actions green on main, runbook complete, README with architecture diagram.
+**Goal:** GitHub Actions CI green on main, codebase fully commented, README complete with screenshots.
+**Deliverable:** Every push to main triggers CI — Terraform validate, Ansible lint, Docker build, Shellcheck.
+**Status: COMPLETE — 2026-04-07** ✓
 
 | Step | Task | Status |
 |------|------|--------|
-| 6.1 | `scripts/bootstrap.sh` — first-time local setup helper | pending |
-| 6.2 | `scripts/health-check.sh` — validates EC2 + Docker + all 4 services | pending |
-| 6.3 | `scripts/backup.sh` — Jenkins home + Prometheus + Grafana data | pending |
-| 6.4 | `scripts/rotate-logs.sh` — log rotation helper | pending |
-| 6.5 | `.github/workflows/ci.yml` — terraform validate + ansible-lint + pytest + shellcheck + docker build | pending |
-| 6.6 | `.github/workflows/release.yml` — tag + GHCR push + GitHub release | pending |
-| 6.7 | `docs/architecture.png` — architecture diagram | pending |
-| 6.8 | `README.md` — full setup, deploy, and architecture documentation | pending |
+| 6.1 | `scripts/check-jenkins.sh` — SSM health check script for Jenkins diagnostics | done |
+| 6.2 | `.github/workflows/ci.yml` — Terraform validate + Ansible lint + Docker build + Shellcheck | done |
+| 6.3 | `README.md` — full architecture, stack, quick start, pipeline description, screenshots | done |
+| 6.4 | All key files commented — Dockerfile, plugins.txt, prometheus.yml, Makefile, Jenkinsfile | done |
+| 6.5 | Portfolio screenshots — app live, Jenkins pipeline green, CI workflow green | done |
+
+**CI workflow jobs (all green, 37s total):**
+
+| Job | Tool | What it validates |
+|-----|------|-------------------|
+| Terraform validate | `terraform init -backend=false && terraform validate` | HCL syntax, provider config, variable references |
+| Ansible lint | `ansible-lint` | Playbook best practices, FQCN module names |
+| Docker build | `docker/build-push-action` | Jenkins Dockerfile builds without errors |
+| Shellcheck | `ludeeus/action-shellcheck` | Shell script syntax and common pitfalls |
+
+**CI issue resolved — Terraform version mismatch:**
+`main.tf` has `required_version = ">= 1.6.0"`. The CI workflow initially specified `terraform_version: "~1.5"` which installed 1.5.7 — incompatible. Fixed by updating to `"~1.6"`.
+
+**Final project state — 2026-04-07:**
+- EC2 instance running on AWS (us-east-1, t3.small, Elastic IP: 54.159.150.73)
+- Full Docker Compose stack: Jenkins + Prometheus + Grafana + manga-hub
+- Jenkins pipeline: push to main → build → push to GHCR → deploy in ~46 seconds
+- Grafana: Jenkins dashboard auto-provisioned from code
+- GitHub Actions CI: green on every push to main
+- All infrastructure as code: Terraform (infra) + Ansible (config) + Docker Compose (platform) + JCasC (Jenkins) + Grafana provisioning
+- All secrets in `/opt/platform/.env` (root:root 600) — never committed, never exposed
 
 ---
 

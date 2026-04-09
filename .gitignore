@@ -50,5 +50,4 @@ credentials.csv
 *.pem
 *.ppk
 CLAUDE_devops_platform_lab.md
-runbook.md
-docs/runbook.md
+docs/build-story.md
