@@ -45,7 +45,8 @@ provision-check:
 	ANSIBLE_ROLES_PATH="$(ANSIBLE_DIR)/roles" \
 	ansible-playbook playbooks/provision.yml --check --diff \
 	  -i inventory/hosts.ini \
-	  -e @group_vars/all/vars.yml
+	  -e @group_vars/all/vars.yml \
+	  -e @group_vars/all/vault.yml
 
 # Full server provision — installs Docker, swap, users, firewall (idempotent)
 # Only needs to run once after `terraform apply`. Safe to re-run — Ansible is idempotent.
@@ -55,7 +56,8 @@ provision:
 	ANSIBLE_ROLES_PATH="$(ANSIBLE_DIR)/roles" \
 	ansible-playbook playbooks/provision.yml \
 	  -i inventory/hosts.ini \
-	  -e @group_vars/all/vars.yml
+	  -e @group_vars/all/vars.yml \
+	  -e @group_vars/all/vault.yml
 
 # Sync platform files to EC2 and start/restart the core stack (Jenkins, Prometheus, Grafana)
 # Uses SSM to create the directory structure first, then Ansible to rsync files and start services.
@@ -73,7 +75,8 @@ deploy:
 	ANSIBLE_ROLES_PATH="$(ANSIBLE_DIR)/roles" \
 	ansible-playbook playbooks/deploy.yml \
 	  -i inventory/hosts.ini \
-	  -e @group_vars/all/vars.yml
+	  -e @group_vars/all/vars.yml \
+	  -e @group_vars/all/vault.yml
 
 # Start the Docker Compose stack on EC2 via SSM Run Command
 # SSM is used because there is no SSH key pair — all remote commands go through AWS SSM
