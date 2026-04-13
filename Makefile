@@ -66,7 +66,7 @@ deploy:
 	@aws ssm send-command \
 	  --instance-ids "$(INSTANCE_ID)" \
 	  --document-name "AWS-RunShellScript" \
-	  --parameters 'commands=["mkdir -p /opt/platform/jenkins/casc /opt/platform/prometheus /opt/platform/grafana/provisioning/datasources /opt/platform/grafana/provisioning/dashboards /opt/platform/grafana/dashboards"]' \
+	  --parameters 'commands=["mkdir -p /opt/platform/jenkins/casc /opt/platform/prometheus/alerts /opt/platform/grafana/provisioning/datasources /opt/platform/grafana/provisioning/dashboards /opt/platform/grafana/dashboards"]' \
 	  --region $(AWS_REGION) --output text --query "Command.CommandId"
 	cd "$(ANSIBLE_DIR)" && \
 	ANSIBLE_CONFIG="$(ANSIBLE_DIR)/ansible.cfg" \
