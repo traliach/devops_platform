@@ -1313,6 +1313,36 @@ docker exec prometheus promtool check rules /etc/prometheus/alerts/rules.yml
 
 All 4 alerts verified `inactive` (healthy) on 2026-04-13 after deploy.
 
+### Verified alert — JenkinsDown (2026-04-13)
+
+`JenkinsDown` was triggered intentionally by stopping the Jenkins container.
+Alert fired after 2 minutes as configured. Observed output:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "alerts": [{
+      "labels": {
+        "alertname": "JenkinsDown",
+        "instance": "jenkins:8080",
+        "job": "jenkins",
+        "severity": "critical"
+      },
+      "annotations": {
+        "description": "Jenkins scrape target has been down for 2 minutes.",
+        "summary": "Jenkins is down"
+      },
+      "state": "firing",
+      "activeAt": "2026-04-13T15:29:54.799415028Z",
+      "value": "0e+00"
+    }]
+  }
+}
+```
+
+Jenkins was restarted immediately after. Alert returned to `inactive` once scrape target recovered.
+
 ### Triggering an alert for verification
 
 To trigger `JenkinsDown` intentionally:
