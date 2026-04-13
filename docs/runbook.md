@@ -1191,3 +1191,154 @@ aws dynamodb delete-table --table-name devops-platform-lab-tf-lock --region us-e
 ```bash
 bash scripts/health-check.sh
 ```
+
+---
+
+## Secrets Management
+
+### Overview
+
+Production secrets are managed with Ansible Vault — never stored in plain text, never committed unencrypted. The vault encrypts `ansible/group_vars/all/vault.yml` using AES256. The deploy playbook reads decrypted values and writes `/opt/platform/.env` on EC2 at deploy time.
+
+```
+vault.yml (encrypted, committed) → ansible-vault decrypt → deploy.yml → /opt/platform/.env (600, never committed)
+```
+
+### Vault file layout
+
+**`ansible/group_vars/all/vault.yml`** — encrypted, committed to git:
+```yaml
+vault_jenkins_admin_password: "..."
+vault_grafana_admin_password: "..."
+vault_ghcr_token: "..."
+```
+
+**`ansible/group_vars/all/vars.yml`** — plain text, bridges vault vars into usable names:
+```yaml
+jenkins_admin_password: "{{ vault_jenkins_admin_password }}"
+grafana_admin_password: "{{ vault_grafana_admin_password }}"
+ghcr_token: "{{ vault_ghcr_token }}"
+```
+
+### Local setup (WSL — one time)
+
+```bash
+# Create vault password file — never commit this
+echo "your_vault_password" > ~/.vault_pass
+chmod 600 ~/.vault_pass
+```
+
+`ansible.cfg` references it automatically:
+```ini
+vault_password_file = ~/.vault_pass
+```
+
+### Common vault commands
+
+```bash
+# View / edit the encrypted vault file
+ansible-vault edit ansible/group_vars/all/vault.yml
+
+# Re-encrypt after editing manually
+ansible-vault encrypt ansible/group_vars/all/vault.yml
+
+# Decrypt to stdout (view without editing)
+ansible-vault decrypt --output=- ansible/group_vars/all/vault.yml
+
+# Rotate the vault password
+ansible-vault rekey ansible/group_vars/all/vault.yml
+```
+
+### CI/CD (GitHub Actions)
+
+CI does not use `~/.vault_pass`. Instead the vault password is stored as a GitHub Actions secret `ANSIBLE_VAULT_PASSWORD`. When needed in a workflow step:
+
+```yaml
+- name: Run playbook with vault
+  env:
+    ANSIBLE_VAULT_PASSWORD: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
+  run: |
+    echo "$ANSIBLE_VAULT_PASSWORD" > /tmp/.vault_pass
+    chmod 600 /tmp/.vault_pass
+    ANSIBLE_CONFIG=ansible/ansible.cfg \
+    ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/deploy.yml \
+      --vault-password-file /tmp/.vault_pass
+    rm -f /tmp/.vault_pass
+```
+
+### Security notes
+
+- `~/.vault_pass` is gitignored via `.gitignore` — never commit it
+- `/opt/platform/.env` on EC2 is owned `root:root` mode `0600` — unreadable by other users
+- `no_log: true` is set on the deploy task that writes secrets — never printed in Ansible output
+- Rotating a secret: edit vault → `make deploy` → done. The new `.env` is written on next deploy.
+
+---
+
+## Alerting
+
+### Overview
+
+Prometheus evaluates alerting rules every 15 seconds (matching `evaluation_interval`). Rules are defined in `platform/prometheus/alerts/rules.yml` and mounted into the Prometheus container at `/etc/prometheus/alerts/rules.yml`.
+
+### Alert groups
+
+**`jenkins` group:**
+
+| Alert | Condition | Severity | Fire after |
+|-------|-----------|----------|------------|
+| `JenkinsBuildFailureRate` | Failed builds rate > 0 in last 5m | warning | 1 min |
+| `JenkinsDown` | Jenkins scrape target unreachable | critical | 2 min |
+
+**`platform` group:**
+
+| Alert | Condition | Severity | Fire after |
+|-------|-----------|----------|------------|
+| `ContainerRestarting` | Container restart rate > 0 in last 5m | warning | 2 min |
+| `HighMemoryUsage` | Container memory > 85% of limit | warning | 5 min |
+
+### Check alert state
+
+```bash
+# From WSL — query Prometheus API via SSM
+aws ssm send-command \
+  --instance-ids i-0eb277f732ee785ac \
+  --document-name "AWS-RunShellScript" \
+  --parameters 'commands=["docker exec prometheus wget -qO- http://localhost:9090/api/v1/rules | python3 -m json.tool"]' \
+  --region us-east-1 --output text --query "Command.CommandId"
+
+# Or validate rules file directly
+docker exec prometheus promtool check rules /etc/prometheus/alerts/rules.yml
+```
+
+All 4 alerts verified `inactive` (healthy) on 2026-04-13 after deploy.
+
+### Triggering an alert for verification
+
+To trigger `JenkinsDown` intentionally:
+
+```bash
+# Stop Jenkins container
+aws ssm send-command \
+  --instance-ids i-0eb277f732ee785ac \
+  --document-name "AWS-RunShellScript" \
+  --parameters 'commands=["cd /opt/platform && docker compose stop jenkins"]' \
+  --region us-east-1 --output text --query "Command.CommandId"
+
+# Wait 2 minutes, then check — alert moves from inactive → pending → firing
+docker exec prometheus wget -qO- http://localhost:9090/api/v1/alerts
+```
+
+Restart Jenkins after verification:
+```bash
+aws ssm send-command \
+  --instance-ids i-0eb277f732ee785ac \
+  --document-name "AWS-RunShellScript" \
+  --parameters 'commands=["cd /opt/platform && docker compose start jenkins"]' \
+  --region us-east-1 --output text --query "Command.CommandId"
+```
+
+### Deploying rule changes
+
+Edit `platform/prometheus/alerts/rules.yml` locally → commit → push → `make deploy`.
+Prometheus hot-reloads rules without restart (config reload happens via SIGHUP on `make deploy`).
