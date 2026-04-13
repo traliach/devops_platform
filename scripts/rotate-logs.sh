@@ -7,6 +7,7 @@
 #
 # Note: Docker log rotation is also configured per-service in docker-compose.yml
 # (max-size, max-file). This script is a manual safety valve.
+# shellcheck disable=SC2016
 
 set -euo pipefail
 
@@ -70,7 +71,11 @@ for i in $(seq 1 12); do
       --query "StandardOutputContent" \
       --output text
 
-    [[ "$STATUS" == "Success" ]] && pass "Log rotation complete" || fail "Log rotation failed"
+    if [[ "$STATUS" == "Success" ]]; then
+      pass "Log rotation complete"
+    else
+      fail "Log rotation failed"
+    fi
     break
   fi
 

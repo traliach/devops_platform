@@ -106,14 +106,14 @@ fi
 # ── 6. Vault password file ────────────────────────────────────────────────────
 section "6. Ansible Vault Password File"
 if [[ -f "$HOME/.vault_pass" ]]; then
-  pass "~/.vault_pass already exists"
+  pass "\$HOME/.vault_pass already exists"
 else
-  warn "~/.vault_pass not found"
-  read -rsp "Enter vault password (will be saved to ~/.vault_pass): " VAULT_PASS
+  warn "\$HOME/.vault_pass not found"
+  read -rsp "Enter vault password (will be saved to \$HOME/.vault_pass): " VAULT_PASS
   echo ""
   echo "$VAULT_PASS" > "$HOME/.vault_pass"
   chmod 600 "$HOME/.vault_pass"
-  pass "~/.vault_pass created (chmod 600)"
+  pass "\$HOME/.vault_pass created (chmod 600)"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

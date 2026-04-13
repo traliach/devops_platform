@@ -4,6 +4,7 @@
 # Validates: Docker daemon, Jenkins, Prometheus, Grafana, manga-hub.
 #
 # Usage: bash scripts/health-check.sh
+# shellcheck disable=SC2016
 
 set -euo pipefail
 
@@ -12,7 +13,6 @@ REGION="us-east-1"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
