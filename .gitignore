@@ -46,6 +46,10 @@ coverage/
 # Ansible Vault password file — never commit
 .vault_pass
 *.vault_pass
+*.save
+
+# Windows installer files
+*.exe
 
 # AWS credentials — never commit
 rootkey*.csv
