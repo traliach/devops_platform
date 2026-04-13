@@ -1,0 +1,43 @@
+groups:
+  - name: jenkins
+    rules:
+      - alert: JenkinsBuildFailureRate
+        expr: |
+          rate(default_jenkins_builds_failed_builds_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Jenkins build failures detected"
+          description: "Jenkins has had {{ $value }} failed builds in the last 5 minutes."
+
+      - alert: JenkinsDown
+        expr: up{job="jenkins"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Jenkins is down"
+          description: "Jenkins scrape target has been down for 2 minutes."
+
+  - name: platform
+    rules:
+      - alert: ContainerRestarting
+        expr: |
+          rate(container_restart_count[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container restarting on {{ $labels.name }}"
+          description: "Container {{ $labels.name }} has restarted {{ $value }} times in the last 5 minutes."
+
+      - alert: HighMemoryUsage
+        expr: |
+          (container_memory_usage_bytes / container_spec_memory_limit_bytes) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.name }}"
+          description: "Container {{ $labels.name }} is using {{ $value | humanizePercentage }} of its memory limit."
