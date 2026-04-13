@@ -43,6 +43,10 @@ yarn-error.log*
 coverage/
 .nyc_output/
 
+# Ansible Vault password file — never commit
+.vault_pass
+*.vault_pass
+
 # AWS credentials — never commit
 rootkey*.csv
 accessKeys*.csv

@@ -29,6 +29,22 @@
         mode: "0644"
       tags: [deploy]
 
+    - name: Write .env from vault vars
+      copy:
+        content: |
+          GRAFANA_ADMIN_USER=admin
+          GRAFANA_ADMIN_PASSWORD={{ grafana_admin_password }}
+          JENKINS_ADMIN_PASSWORD={{ jenkins_admin_password }}
+          GHCR_USERNAME={{ ghcr_username }}
+          GHCR_TOKEN={{ ghcr_token }}
+          APP_VERSION=latest
+        dest: /opt/platform/.env
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
+        mode: "0600"
+      no_log: true
+      tags: [deploy]
+
     - name: Lock down .env permissions
       file:
         path: /opt/platform/.env

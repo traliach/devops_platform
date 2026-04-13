@@ -1,0 +1,14 @@
+---
+# ansible/group_vars/all/vault.yml
+#
+# IMPORTANT: Fill in real values, then encrypt this file before committing:
+#   ansible-vault encrypt ansible/group_vars/all/vault.yml
+#
+# To edit after encrypting:
+#   ansible-vault edit ansible/group_vars/all/vault.yml
+#
+# Vault password stored locally at: ~/.vault_pass (never committed)
+
+vault_jenkins_admin_password: "REPLACE_WITH_STRONG_PASSWORD"
+vault_grafana_admin_password: "REPLACE_WITH_STRONG_PASSWORD"
+vault_ghcr_token: "REPLACE_WITH_GHCR_PAT"

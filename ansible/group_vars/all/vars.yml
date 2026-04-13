@@ -22,3 +22,10 @@ firewall_allowed_ports:
   - { port: "443", proto: "tcp" }   # HTTPS — Nginx
   - { port: "8080", proto: "tcp" }  # Jenkins
   - { port: "3000", proto: "tcp" }  # Grafana
+
+# Secrets — values sourced from vault.yml (ansible-vault encrypted)
+# vault.yml defines vault_* vars; these bridge them into usable names
+jenkins_admin_password: "{{ vault_jenkins_admin_password }}"
+grafana_admin_password: "{{ vault_grafana_admin_password }}"
+ghcr_token: "{{ vault_ghcr_token }}"
+ghcr_username: "traliach"
