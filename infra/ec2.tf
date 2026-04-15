@@ -39,8 +39,9 @@ resource "aws_instance" "platform" {
     encrypted             = true
   }
 
+  # Prevent accidental destruction — use stop/start for cost control, not destroy
   lifecycle {
-    prevent_destroy = false
+    prevent_destroy = true
   }
 
   tags = { Name = "${var.project}-server" }
