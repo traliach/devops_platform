@@ -127,18 +127,17 @@ devops_platform/
 git clone https://github.com/traliach/devops_platform.git
 cd devops_platform
 
-# 2. In WSL — create symlink to avoid path-with-spaces issues
-ln -s "/mnt/c/Users/trach/Documents/New project/devops_platform" ~/devops-platform-lab
+# 2. In WSL — run bootstrap (installs Ansible, SSM plugin, creates symlink + vault password)
+bash scripts/bootstrap.sh
 
-# 3. Provision EC2
-cd infra && terraform init && terraform apply
-
-# 4. Copy .env to server and configure
-# Fill in platform/.env (see platform/.env.example)
-
-# 5. Deploy stack
-cd ~/devops-platform-lab && make deploy
+# 3. Provision infrastructure, configure server, deploy stack
+cd ~/devops-platform-lab
+terraform -chdir=infra apply
+make provision
+make deploy
 ```
+
+That's it — EC2 is provisioned, Docker stack is running, Jenkins and Grafana are accessible.
 
 ## Environment variables
 
