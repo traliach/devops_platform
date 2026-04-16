@@ -49,7 +49,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/platform-jenkins:latest
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           body: |
